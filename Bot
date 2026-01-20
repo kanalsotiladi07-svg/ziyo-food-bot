@@ -1,0 +1,178 @@
+from telegram import (
+    Update,
+    ReplyKeyboardMarkup,
+    KeyboardButton
+)
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters
+)
+
+# ====== SOZLAMALAR ======
+TOKEN = "8346475214:AAF61SD2ElIb97ceq4IxO34mfxYaiGEoR5c"
+ADMIN_ID = 7827164632  # admin telegram ID
+
+# ====== STICKER (ixtiyoriy) ======
+ST_START = None  # xohlasang keyin qo‘shamiz
+
+# ====== MENU ======
+MENU = {
+    "🌯 LAVASH": 33000,
+    "🍔 NON BURGER": 35000,
+    "🌭 XOT-DOG": 20000,
+    "☕ KOFE": 15000,
+    "🥤 COCA COLA": 10000,
+    "🥤 PEPSI": 10000,
+    "🥤 FANTA": 10000,
+    "🍗 TANDIR TOVUQ": 50000,
+    "🍗 KEFSI": 40000
+}
+
+users = {}
+
+# ====== /start ======
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    kb = [
+        ["🍽 Ovqat zakaz qilish"],
+        ["📦 Buyurtmalar", "📍 Ziyo food manzil"],
+        ["☎ Qo‘llab-quvvatlash"]
+    ]
+    await update.message.reply_text(
+        "Assalomu alaykum 👋\nZiyo Food botiga xush kelibsiz!",
+        reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
+    )
+
+# ====== MATN ======
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text
+
+    if user_id not in users:
+        users[user_id] = {"cart": []}
+
+    # Ovqat zakaz qilish
+    if text == "🍽 Ovqat zakaz qilish":
+        kb = [[k] for k in MENU.keys()]
+        kb.append(["⬅ Orqaga"])
+        await update.message.reply_text(
+            "Ovqat tanlang:",
+            reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
+        )
+
+    # Orqaga
+    elif text == "⬅ Orqaga":
+        await start(update, context)
+
+    # Menu tanlandi
+    elif text in MENU:
+        users[user_id]["current"] = text
+        await update.message.reply_text(
+            f"{text} nechta olasiz? (son yozing)"
+        )
+
+    # Miqdor
+    elif text.isdigit() and "current" in users[user_id]:
+        item = users[user_id]["current"]
+        qty = int(text)
+        price = MENU[item] * qty
+        users[user_id]["cart"].append((item, qty, price))
+        del users[user_id]["current"]
+
+        kb = [
+            ["➕ Yana ovqat"],
+            ["✅ Buyurtmani yakunlash"]
+        ]
+        await update.message.reply_text(
+            f"Qo‘shildi ✅\n{item} x{qty}\nNarx: {price} so‘m",
+            reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
+        )
+
+    # Yana ovqat
+    elif text == "➕ Yana ovqat":
+        kb = [[k] for k in MENU.keys()]
+        kb.append(["⬅ Orqaga"])
+        await update.message.reply_text(
+            "Yana ovqat tanlang:",
+            reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
+        )
+
+    # Buyurtmani yakunlash
+    elif text == "✅ Buyurtmani yakunlash":
+        if not users[user_id]["cart"]:
+            await update.message.reply_text("Savat bo‘sh ❌")
+            return
+
+        total = sum(i[2] for i in users[user_id]["cart"])
+        txt = "🧾 Buyurtma:\n"
+        for i in users[user_id]["cart"]:
+            txt += f"{i[0]} x{i[1]} = {i[2]} so‘m\n"
+        txt += f"\nJami: {total} so‘m"
+
+        kb = [
+            [KeyboardButton("📞 Telefon yuborish", request_contact=True)],
+            [KeyboardButton("📍 Lokatsiya yuborish", request_location=True)]
+        ]
+
+        await update.message.reply_text(
+            txt + "\n\nTelefon va lokatsiyani yuboring:",
+            reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
+        )
+
+    # Buyurtmalar
+    elif text == "📦 Buyurtmalar":
+        await update.message.reply_text("Hozircha bo‘sh 📦")
+
+    # Manzil
+    elif text == "📍 Ziyo food manzil":
+        await update.message.reply_text(
+            "📍 Ziyo Food\nhttps://maps.google.com"
+        )
+
+    # Aloqa
+    elif text == "☎ Qo‘llab-quvvatlash":
+        await update.message.reply_text("Admin: @username")
+
+# ====== KONTAKT ======
+async def contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    phone = update.message.contact.phone_number
+    users[user.id]["phone"] = phone
+    await update.message.reply_text("Telefon qabul qilindi ✅")
+
+# ====== LOKATSIYA ======
+async def location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    loc = update.message.location
+    link = f"https://maps.google.com/?q={loc.latitude},{loc.longitude}"
+
+    txt = (
+        f"📦 YANGI BUYURTMA\n"
+        f"👤 {user.full_name}\n"
+        f"📞 {users[user.id].get('phone')}\n"
+        f"📍 {link}\n\n"
+    )
+
+    for i in users[user.id]["cart"]:
+        txt += f"{i[0]} x{i[1]} = {i[2]} so‘m\n"
+
+    await context.bot.send_message(ADMIN_ID, txt)
+    await update.message.reply_text("Buyurtma yuborildi ✅ Rahmat!")
+
+    users[user.id] = {"cart": []}
+
+# ====== RUN ======
+def main():
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.CONTACT, contact))
+    app.add_handler(MessageHandler(filters.LOCATION, location))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
